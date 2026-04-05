@@ -18,6 +18,9 @@ from server.support_env_environment import SupportEnvironment
 import json
 from datetime import datetime
 
+from fastapi.responses import HTMLResponse
+from pathlib import Path
+
 
 # =============================
 # CREATE OPENENV APP
@@ -78,7 +81,6 @@ async def reset_get():
     return entry
 
 
-
 @app.post("/step_logged")
 async def step_logged(action: dict):
     temp_env = SupportEnvironment()
@@ -111,7 +113,18 @@ def get_logs():
     }
 
 
+# =============================
+# FRONTEND ROUTE
+# =============================
+@app.get("/", response_class=HTMLResponse)
+def home():
+    html_path = Path(__file__).parent / "frontend.html"
+    return html_path.read_text(encoding="utf-8")
+
+
+# =============================
 # MAIN (LOCAL RUN)
+# =============================
 def main(host: str = "0.0.0.0", port: int = 8000):
     import uvicorn
     uvicorn.run(app, host=host, port=port)

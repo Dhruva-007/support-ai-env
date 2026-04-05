@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Support AI Environment</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body {
+            font-family: Arial;
+            background: #0f172a;
+            color: white;
+            padding: 20px;
+        }
+
+        h1 {
+            color: #38bdf8;
+        }
+
+        .controls button {
+            margin: 5px;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 6px;
+            background: #2563eb;
+            color: white;
+            cursor: pointer;
+        }
+
+        .controls button:hover {
+            background: #1d4ed8;
+        }
+
+        .container {
+            display: flex;
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .panel {
+            flex: 1;
+            background: #020617;
+            padding: 15px;
+            border-radius: 10px;
+        }
+
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 6px;
+        }
+
+        .correct {
+            background: #065f46;
+            color: #34d399;
+        }
+
+        .wrong {
+            background: #7f1d1d;
+            color: #f87171;
+        }
+
+        .neutral {
+            background: #1e293b;
+            color: #94a3b8;
+        }
+
+        pre {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        canvas {
+            background: white;
+            border-radius: 10px;
+            padding: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<h1>🤖 Support AI Environment</h1>
+
+<div class="controls">
+    <button onclick="resetEnv()">Reset</button>
+    <button onclick="getState()">Get State</button>
+
+    <button onclick="stepEnv('reply')">Reply</button>
+    <button onclick="stepEnv('request_info')">Request Info</button>
+    <button onclick="stepEnv('escalate')">Escalate</button>
+</div>
+
+<div class="container">
+
+    <div class="panel">
+        <h3>Output</h3>
+        <pre id="output">Start by clicking Reset</pre>
+
+        <div id="decisionBox" class="status neutral">
+            No decision yet
+        </div>
+
+        <div id="episodeStatus" class="status neutral">
+            Episode not started
+        </div>
+    </div>
+
+    <div class="panel">
+        <h3>Reward Graph</h3>
+        <canvas id="rewardChart"></canvas>
+    </div>
+
+</div>
+
+<script>
+    let rewards = [];
+    let steps = [];
+
+    const ctx = document.getElementById('rewardChart').getContext('2d');
+
+    const chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Reward per Step',
+                data: [],
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: false
+                }
+            }
+        }
+    });
+
+    function updateChart() {
+        chart.data.labels = steps;
+        chart.data.datasets[0].data = rewards;
+        chart.update();
+    }
+
+    function display(data) {
+        document.getElementById("output").textContent =
+            JSON.stringify(data, null, 2);
+    }
+
+    function updateDecision(data, actionType) {
+        const box = document.getElementById("decisionBox");
+
+        try {
+            const reason = data.observation.reason || "";
+            const expectedMatch = reason.match(/Expected '(.+?)'/);
+            const expected = expectedMatch ? expectedMatch[1] : "unknown";
+
+            if (expected === actionType) {
+                box.className = "status correct";
+                box.innerText = `✅ Correct Action\nExpected: ${expected}\nYou chose: ${actionType}`;
+            } else {
+                box.className = "status wrong";
+                box.innerText = `❌ Wrong Action\nExpected: ${expected}\nYou chose: ${actionType}`;
+            }
+        } catch {
+            box.className = "status neutral";
+            box.innerText = "Decision info unavailable";
+        }
+    }
+
+    function updateEpisodeStatus(done) {
+        const box = document.getElementById("episodeStatus");
+
+        if (done) {
+            box.className = "status correct";
+            box.innerText = "🎯 Episode Finished";
+        } else {
+            box.className = "status neutral";
+            box.innerText = "⏳ Episode Running";
+        }
+    }
+
+    async function resetEnv() {
+        const res = await fetch("/reset");
+        const data = await res.json();
+
+        rewards = [];
+        steps = [];
+
+        chart.data.labels = [];
+        chart.data.datasets[0].data = [];
+        chart.update();
+
+        document.getElementById("decisionBox").innerText = "No decision yet";
+        document.getElementById("decisionBox").className = "status neutral";
+
+        updateEpisodeStatus(false);
+        display(data);
+    }
+
+    async function getState() {
+        const res = await fetch("/state");
+        const data = await res.json();
+        display(data);
+    }
+
+    async function stepEnv(actionType) {
+        const res = await fetch("/step", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                action: {
+                    action_type: actionType
+                }
+            })
+        });
+
+        const data = await res.json();
+
+        if (data.reward !== undefined) {
+            rewards.push(data.reward);
+            steps.push("Step " + rewards.length);
+            updateChart();
+        }
+
+        updateDecision(data, actionType);
+        updateEpisodeStatus(data.done);
+
+        display(data);
+    }
+</script>
+
+</body>
+</html>
