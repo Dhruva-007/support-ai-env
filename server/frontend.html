@@ -174,7 +174,7 @@
 
         if (done) {
             box.className = "status correct";
-            box.innerText = "🎯 Episode Finished";
+            box.innerText = "🎯 Episode Finished (Loading next...)";
         } else {
             box.className = "status neutral";
             box.innerText = "⏳ Episode Running";
@@ -228,8 +228,20 @@
 
         updateDecision(data, actionType);
         updateEpisodeStatus(data.done);
-
         display(data);
+
+        if (data.done === true) {
+            setTimeout(async () => {
+                const res2 = await fetch("/reset");
+                const newData = await res2.json();
+
+                document.getElementById("decisionBox").innerText = "New episode started";
+                document.getElementById("decisionBox").className = "status neutral";
+
+                updateEpisodeStatus(false);
+                display(newData);
+            }, 1200);
+        }
     }
 </script>
 
