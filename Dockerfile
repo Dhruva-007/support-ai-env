@@ -27,4 +27,4 @@ EXPOSE 8000
 HEALTHCHECK CMD curl -f http://localhost:8000/reset || exit 1
 
 # Start server
-CMD ["uvicorn", "support_env.server.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8000"]
