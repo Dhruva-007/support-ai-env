@@ -1,3 +1,13 @@
+---
+title: Support AI RL Environment
+emoji: 🤖
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 8000
+pinned: false
+---
+
 # 🤖 Support AI RL Environment
 
 A real-world Reinforcement Learning (RL) environment for evaluating AI agents in customer support decision-making scenarios.
