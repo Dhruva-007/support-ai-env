@@ -43,16 +43,8 @@
             border-radius: 10px;
         }
 
-        .status {
-            margin-top: 10px;
-            padding: 10px;
-            border-radius: 6px;
-            background: #1e293b;
-            color: #94a3b8;
-        }
-
         pre {
-            max-height: 300px;
+            max-height: 350px;
             overflow-y: auto;
             font-size: 13px;
         }
@@ -80,15 +72,8 @@
 <div class="container">
 
     <div class="panel">
-        <h3>Output</h3>
+        <h3>Response Output</h3>
         <pre id="output">Start by clicking Reset</pre>
-
-        <div id="episodeStatus" class="status">
-            Episode not started
-        </div>
-
-        <h3 style="margin-top:15px;">Raw JSON</h3>
-        <pre id="rawJson">{}</pre>
     </div>
 
     <div class="panel">
@@ -133,18 +118,6 @@
     function display(data) {
         document.getElementById("output").textContent =
             JSON.stringify(data, null, 2);
-        document.getElementById("rawJson").textContent =
-            JSON.stringify(data);
-    }
-
-    function updateEpisodeStatus(done) {
-        const box = document.getElementById("episodeStatus");
-
-        if (done) {
-            box.innerText = "🎯 Episode Finished";
-        } else {
-            box.innerText = "⏳ Episode Running";
-        }
     }
 
     async function resetEnv() {
@@ -157,8 +130,6 @@
         chart.data.labels = [];
         chart.data.datasets[0].data = [];
         chart.update();
-
-        updateEpisodeStatus(false);
         display(data);
     }
 
@@ -188,8 +159,6 @@
             steps.push("Step " + rewards.length);
             updateChart();
         }
-
-        updateEpisodeStatus(data.done);
         display(data);
     }
 </script>
