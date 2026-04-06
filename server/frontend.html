@@ -47,19 +47,6 @@
             margin-top: 10px;
             padding: 10px;
             border-radius: 6px;
-        }
-
-        .correct {
-            background: #065f46;
-            color: #34d399;
-        }
-
-        .wrong {
-            background: #7f1d1d;
-            color: #f87171;
-        }
-
-        .neutral {
             background: #1e293b;
             color: #94a3b8;
         }
@@ -67,6 +54,7 @@
         pre {
             max-height: 300px;
             overflow-y: auto;
+            font-size: 13px;
         }
 
         canvas {
@@ -95,13 +83,12 @@
         <h3>Output</h3>
         <pre id="output">Start by clicking Reset</pre>
 
-        <div id="decisionBox" class="status neutral">
-            No decision yet
-        </div>
-
-        <div id="episodeStatus" class="status neutral">
+        <div id="episodeStatus" class="status">
             Episode not started
         </div>
+
+        <h3 style="margin-top:15px;">Raw JSON</h3>
+        <pre id="rawJson">{}</pre>
     </div>
 
     <div class="panel">
@@ -146,37 +133,16 @@
     function display(data) {
         document.getElementById("output").textContent =
             JSON.stringify(data, null, 2);
-    }
-
-    function updateDecision(data, actionType) {
-        const box = document.getElementById("decisionBox");
-
-        try {
-            const reason = data.observation.reason || "";
-            const expectedMatch = reason.match(/Expected '(.+?)'/);
-            const expected = expectedMatch ? expectedMatch[1] : "unknown";
-
-            if (expected === actionType) {
-                box.className = "status correct";
-                box.innerText = `✅ Correct Action\nExpected: ${expected}\nYou chose: ${actionType}`;
-            } else {
-                box.className = "status wrong";
-                box.innerText = `❌ Wrong Action\nExpected: ${expected}\nYou chose: ${actionType}`;
-            }
-        } catch {
-            box.className = "status neutral";
-            box.innerText = "Decision info unavailable";
-        }
+        document.getElementById("rawJson").textContent =
+            JSON.stringify(data);
     }
 
     function updateEpisodeStatus(done) {
         const box = document.getElementById("episodeStatus");
 
         if (done) {
-            box.className = "status correct";
-            box.innerText = "🎯 Episode Finished (Loading next...)";
+            box.innerText = "🎯 Episode Finished";
         } else {
-            box.className = "status neutral";
             box.innerText = "⏳ Episode Running";
         }
     }
@@ -191,9 +157,6 @@
         chart.data.labels = [];
         chart.data.datasets[0].data = [];
         chart.update();
-
-        document.getElementById("decisionBox").innerText = "No decision yet";
-        document.getElementById("decisionBox").className = "status neutral";
 
         updateEpisodeStatus(false);
         display(data);
@@ -226,22 +189,8 @@
             updateChart();
         }
 
-        updateDecision(data, actionType);
         updateEpisodeStatus(data.done);
         display(data);
-
-        if (data.done === true) {
-            setTimeout(async () => {
-                const res2 = await fetch("/reset");
-                const newData = await res2.json();
-
-                document.getElementById("decisionBox").innerText = "New episode started";
-                document.getElementById("decisionBox").className = "status neutral";
-
-                updateEpisodeStatus(false);
-                display(newData);
-            }, 1200);
-        }
     }
 </script>
 
