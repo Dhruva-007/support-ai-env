@@ -57,7 +57,13 @@ class SupportEnvironment:
             else:
                 base += 0.2
 
-            reward = base
+            speed_bonus = max(0, 0.3 - 0.05 * self.step_count)
+
+            reward = base + speed_bonus
+
+            if expected == "escalate" and self.task["sentiment"] < -0.5:
+                reward += 0.2
+
             self.done = True
 
         else:
@@ -68,11 +74,13 @@ class SupportEnvironment:
             else:
                 reward = -0.2
 
-        # penalties
+            if self.task["urgency"] == "high" and action.action_type == "reply":
+                reward -= 0.3
+
         reward -= 0.05
 
         if len(self.history) >= 2 and self.history[-1] == self.history[-2]:
-            reward -= 0.2
+            reward -= 0.3
 
         if len(self.history) >= 2 and self.history[-1] != self.history[-2]:
             reward -= 0.1

@@ -36,25 +36,37 @@ def log_end(success, steps, rewards):
 
 def parse_action(text):
     text = text.lower().strip()
-    if text.startswith("escalate"):
+
+    if "escalate" in text:
         return "escalate"
-    elif text.startswith("request"):
+    if "request_info" in text or "request" in text:
         return "request_info"
+    if "reply" in text:
+        return "reply"
+
     return "reply"
 
 
 def build_prompt(obs):
     return f"""
+You are a precise customer support decision agent.
+
+INPUT:
 Customer message: {obs['customer_message']}
 Sentiment: {obs['sentiment']}
 Urgency: {obs['urgency']}
 
-Rules:
-- sentiment < -0.5 → escalate
-- billing issues → request_info
-- simple queries → reply
+DECISION RULES (STRICT):
+1. If urgency = high OR sentiment < -0.5 → escalate
+2. If urgency = medium → request_info
+3. If urgency = low AND sentiment >= 0 → reply
 
-Choose one:
+IMPORTANT:
+- Output ONLY ONE WORD
+- Do NOT explain
+- Do NOT add extra text
+
+Allowed outputs:
 reply
 request_info
 escalate
@@ -85,8 +97,8 @@ async def main():
             completion = client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=50,
-                temperature=0.2,
+                max_tokens=10,
+                temperature=0.0, 
             )
             text = completion.choices[0].message.content.strip()
         except:
