@@ -15,7 +15,8 @@ RUN pip install --no-cache-dir \
     uvicorn \
     pydantic \
     openenv-core \
-    requests
+    requests \
+    openai
 
 # Set python path
 ENV PYTHONPATH=/app
