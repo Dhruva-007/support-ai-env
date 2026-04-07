@@ -35,6 +35,12 @@ app = create_app(
 
 
 # =============================
+# 🔥 GLOBAL ENV (FIX)
+# =============================
+GLOBAL_ENV = SupportEnvironment()
+
+
+# =============================
 # GLOBAL LOG STORAGE
 # =============================
 reset_history = []
@@ -60,12 +66,11 @@ def health():
 
 
 # =============================
-# RESET (GET for browser)
+# RESET (FIXED)
 # =============================
 @app.get("/reset")
 async def reset_get():
-    temp_env = SupportEnvironment()
-    result = temp_env.reset()
+    result = GLOBAL_ENV.reset()
 
     entry = {
         "type": "reset",
@@ -81,13 +86,14 @@ async def reset_get():
     return entry
 
 
+# =============================
+# STEP (FIXED)
+# =============================
 @app.post("/step_logged")
 async def step_logged(action: dict):
-    temp_env = SupportEnvironment()
-    temp_env.reset()
-
     act = SupportAction(**action["action"])
-    result = temp_env.step(act)
+
+    result = GLOBAL_ENV.step(act)
 
     entry = {
         "type": "step",
@@ -104,7 +110,17 @@ async def step_logged(action: dict):
     return entry
 
 
+# =============================
+# STATE (FIXED)
+# =============================
+@app.get("/state")
+def get_state():
+    return GLOBAL_ENV.state
+
+
+# =============================
 # VIEW HISTORY
+# =============================
 @app.get("/logs")
 def get_logs():
     return {
