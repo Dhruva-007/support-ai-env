@@ -1,6 +1,5 @@
 from support_env.models import SupportObservation, SupportAction
 from support_env.tasks import TASKS
-from support_env.graders import grade_easy, grade_medium, grade_hard
 import random
 
 
@@ -10,13 +9,13 @@ class SupportEnvironment:
         self.step_count = 0
         self.done = False
         self.history = []
-        self.episode_id = None 
+        self.episode_id = None
 
     def _init_task(self):
         self.task = random.choice(list(TASKS.values()))
 
     def reset(self, *args, **kwargs):
-        self.episode_id = kwargs.get("episode_id", "default-episode") 
+        self.episode_id = kwargs.get("episode_id", "default-episode")
         self._init_task()
 
         self.step_count = 0
@@ -39,9 +38,6 @@ class SupportEnvironment:
         )
 
     def step(self, action: SupportAction):
-
-        if not hasattr(self, "task") or self.task is None:
-            pass
 
         self.step_count += 1
         self.history.append(action.action_type)
@@ -123,22 +119,19 @@ class SupportEnvironment:
 
         return obs
 
+    # ✅ CRITICAL FIX HERE
     def compute_score(self):
-        expected = self.task["expected_action"]
+        # USE TASK GRADER DIRECTLY
+        grader = self.task.get("grader")
 
-        if self.task["urgency"] == "low":
-            return grade_easy(self.history, expected)
+        if grader is None:
+            return 0.5  # safe fallback (never 0 or 1)
 
-        elif self.task["urgency"] == "medium":
-            return grade_medium(self.history, expected)
-
-        else:
-            return grade_hard(
-                self.history,
-                expected,
-                self.task["sentiment"],
-                self.task["urgency"]
-            )
+        try:
+            score = grader(self.history)
+            return max(0.01, min(score, 0.99))
+        except Exception:
+            return 0.5
 
     @property
     def state(self):
@@ -148,15 +141,7 @@ class SupportEnvironment:
             "history": self.history,
             "step_count": self.step_count,
             "done": self.done,
-
             "expected_action": self.task["expected_action"],
-            "decision_hint": (
-                "High urgency or negative sentiment → escalate"
-                if self.task["urgency"] == "high" or self.task["sentiment"] < -0.5
-                else "Medium urgency → request_info"
-                if self.task["urgency"] == "medium"
-                else "Low urgency → reply"
-            )
         }
 
     def get_metadata(self):
@@ -165,7 +150,6 @@ class SupportEnvironment:
             "description": "RL environment for customer support decision making",
             "version": "1.0",
             "author": "G Dhruvann",
-            "documentation_url": "http://localhost:8000/docs",
         }
 
     async def reset_async(self, *args, **kwargs):
