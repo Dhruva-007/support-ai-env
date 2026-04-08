@@ -28,7 +28,7 @@ def grade_medium(history, expected):
     """
     for i, action in enumerate(history):
         if action == expected:
-            score = 1.0 - (i * 0.25)  # 🔥 stronger penalty
+            score = 1.0 - (i * 0.25)
             return _clamp(score)
 
     return 0.0
@@ -51,7 +51,7 @@ def grade_hard(history, expected, sentiment, urgency):
     if expected in history:
         score += 0.5
 
-    # speed (new stronger signal)
+    # speed 
     if history[0] == expected:
         score += 0.4
     elif len(history) <= 2:

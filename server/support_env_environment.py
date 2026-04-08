@@ -39,8 +39,9 @@ class SupportEnvironment:
         )
 
     def step(self, action: SupportAction):
-        if self.task is None:
-            self._init_task()
+
+        if not hasattr(self, "task") or self.task is None:
+            pass
 
         self.step_count += 1
         self.history.append(action.action_type)
@@ -58,7 +59,6 @@ class SupportEnvironment:
                 base += 0.2
 
             speed_bonus = max(0, 0.3 - 0.05 * self.step_count)
-
             reward = base + speed_bonus
 
             if expected == "escalate" and self.task["sentiment"] < -0.5:
@@ -76,6 +76,18 @@ class SupportEnvironment:
 
             if self.task["urgency"] == "high" and action.action_type == "reply":
                 reward -= 0.3
+
+        if action.action_type == "escalate" and self.task["urgency"] == "low":
+            reward -= 0.4
+
+        if action.action_type == "reply" and self.task["urgency"] == "high":
+            reward -= 0.4
+
+        if action.action_type == "escalate" and self.task["sentiment"] < -0.5:
+            reward += 0.3
+
+        if action.action_type == "reply" and self.task["sentiment"] > 0:
+            reward += 0.2
 
         reward -= 0.05
 
@@ -131,11 +143,20 @@ class SupportEnvironment:
     @property
     def state(self):
         return {
-            "episode_id": self.episode_id, 
+            "episode_id": self.episode_id,
             "task": self.task,
             "history": self.history,
             "step_count": self.step_count,
             "done": self.done,
+
+            "expected_action": self.task["expected_action"],
+            "decision_hint": (
+                "High urgency or negative sentiment → escalate"
+                if self.task["urgency"] == "high" or self.task["sentiment"] < -0.5
+                else "Medium urgency → request_info"
+                if self.task["urgency"] == "medium"
+                else "Low urgency → reply"
+            )
         }
 
     def get_metadata(self):

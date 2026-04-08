@@ -12,14 +12,11 @@
             padding: 20px;
         }
 
-        h1 {
-            color: #38bdf8;
-        }
+        h1 { color: #38bdf8; }
 
         .controls button {
             margin: 5px;
             padding: 10px 15px;
-            border: none;
             border-radius: 6px;
             background: #2563eb;
             color: white;
@@ -46,7 +43,6 @@
         pre {
             max-height: 350px;
             overflow-y: auto;
-            font-size: 13px;
         }
 
         canvas {
@@ -98,14 +94,6 @@
                 data: [],
                 borderWidth: 2
             }]
-        },
-        options: {
-            responsive: true,
-            scales: {
-                y: {
-                    beginAtZero: false
-                }
-            }
         }
     });
 
@@ -126,10 +114,10 @@
 
         rewards = [];
         steps = [];
-
         chart.data.labels = [];
         chart.data.datasets[0].data = [];
         chart.update();
+
         display(data);
     }
 
@@ -140,15 +128,11 @@
     }
 
     async function stepEnv(actionType) {
-        const res = await fetch("/step", {
+        const res = await fetch("/step_logged", {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
+            headers: {"Content-Type": "application/json"},
             body: JSON.stringify({
-                action: {
-                    action_type: actionType
-                }
+                action: { action_type: actionType }
             })
         });
 
@@ -159,6 +143,7 @@
             steps.push("Step " + rewards.length);
             updateChart();
         }
+
         display(data);
     }
 </script>

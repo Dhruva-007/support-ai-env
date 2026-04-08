@@ -22,9 +22,6 @@ from fastapi.responses import HTMLResponse
 from pathlib import Path
 
 
-# =============================
-# CREATE OPENENV APP
-# =============================
 app = create_app(
     SupportEnvironment,
     SupportAction,
@@ -34,15 +31,11 @@ app = create_app(
 )
 
 
-# =============================
-# 🔥 GLOBAL ENV (FIX)
-# =============================
 GLOBAL_ENV = SupportEnvironment()
 
+EPISODE_ID = None
 
-# =============================
-# GLOBAL LOG STORAGE
-# =============================
+
 reset_history = []
 step_history = []
 
@@ -57,24 +50,21 @@ def save_log(entry):
         pass
 
 
-# =============================
-# HEALTH
-# =============================
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
 
-# =============================
-# RESET (FIXED)
-# =============================
 @app.get("/reset")
 async def reset_get():
+    global EPISODE_ID
+
     result = GLOBAL_ENV.reset()
+    EPISODE_ID = datetime.now().isoformat()
 
     entry = {
         "type": "reset",
-        "time": datetime.now().isoformat(),
+        "time": EPISODE_ID,
         "observation": result.dict(),
         "reward": 0.0,
         "done": False
@@ -86,21 +76,29 @@ async def reset_get():
     return entry
 
 
-# =============================
-# STEP (FIXED)
-# =============================
 @app.post("/step_logged")
 async def step_logged(action: dict):
-    act = SupportAction(**action["action"])
 
+    if GLOBAL_ENV.done:
+        return {
+            "type": "error",
+            "message": "Episode finished. Please click RESET.",
+            "done": True
+        }
+
+    act = SupportAction(**action["action"])
     result = GLOBAL_ENV.step(act)
+
+    reward = round(result.reward, 2)
+
+    result.reward = reward
 
     entry = {
         "type": "step",
         "time": datetime.now().isoformat(),
         "action": action,
         "observation": result.dict(),
-        "reward": result.reward,
+        "reward": reward,
         "done": result.done
     }
 
@@ -110,17 +108,30 @@ async def step_logged(action: dict):
     return entry
 
 
-# =============================
-# STATE (FIXED)
-# =============================
+
 @app.get("/state")
 def get_state():
-    return GLOBAL_ENV.state
+
+    return {
+        "type": "state",
+        "episode_id": EPISODE_ID,
+        "step_count": GLOBAL_ENV.step_count,
+        "history": GLOBAL_ENV.history,
+        "done": GLOBAL_ENV.done,
+
+        "task": GLOBAL_ENV.task,
+
+        "expected_action": GLOBAL_ENV.task.get("expected_action"),
+        "decision_hint": (
+            "High urgency or negative sentiment → escalate"
+            if GLOBAL_ENV.task.get("urgency") == "high" or GLOBAL_ENV.task.get("sentiment") < -0.5
+            else "Medium urgency → request_info"
+            if GLOBAL_ENV.task.get("urgency") == "medium"
+            else "Low urgency → reply"
+        )
+    }
 
 
-# =============================
-# VIEW HISTORY
-# =============================
 @app.get("/logs")
 def get_logs():
     return {
@@ -129,18 +140,12 @@ def get_logs():
     }
 
 
-# =============================
-# FRONTEND ROUTE
-# =============================
 @app.get("/", response_class=HTMLResponse)
 def home():
     html_path = Path(__file__).parent / "frontend.html"
     return html_path.read_text(encoding="utf-8")
 
 
-# =============================
-# MAIN (LOCAL RUN)
-# =============================
 def main(host: str = "0.0.0.0", port: int = 8000):
     import uvicorn
     uvicorn.run(app, host=host, port=port)

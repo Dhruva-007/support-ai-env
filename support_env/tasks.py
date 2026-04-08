@@ -5,12 +5,8 @@ DATA_PATH = os.path.join(os.path.dirname(__file__), "data", "tickets.json")
 
 
 def normalize_task(item):
-    """
-    🔥 NEW: Reduce ambiguity (safe, no structure change)
-    """
     text = item["ticket"].lower()
 
-    # delivery issues → request_info
     if "where is my order" in text or "not received" in text:
         item["expected_action"] = "request_info"
 
@@ -27,7 +23,7 @@ def load_tasks():
 
     tasks = {}
     for i, item in enumerate(data):
-        item = normalize_task(item)  # ✅ only addition
+        item = normalize_task(item)
         tasks[f"task_{i}"] = item
 
     return tasks
