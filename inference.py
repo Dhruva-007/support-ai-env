@@ -1,4 +1,3 @@
-import asyncio
 import os
 import sys
 import requests
@@ -16,7 +15,7 @@ BASE_URL = "http://localhost:8000"
 MAX_STEPS = 6
 SUCCESS_THRESHOLD = 0.7
 
-TASK_TYPE = os.getenv("TASK_TYPE", None)
+TASK_TYPES = ["easy", "medium", "hard"]
 
 
 def log_start(task, env, model):
@@ -42,11 +41,6 @@ def log_end(success, steps, score, rewards):
 
 
 def llm_policy(client, obs, history):
-    """
-    Use the LLM to select the best action given the current observation.
-    Falls back to the rule-based policy if the LLM call fails or returns
-    an unrecognised response.
-    """
     urgency = obs.get("urgency", "low")
     sentiment = obs.get("sentiment", 0.0)
     message = obs.get("customer_message", "")
@@ -109,7 +103,6 @@ def llm_policy(client, obs, history):
 
 
 def _rule_policy(obs, history):
-    """Deterministic fallback — mirrors the decision rules in the LLM prompt."""
     urgency = obs.get("urgency", "low")
     sentiment = obs.get("sentiment", 0.0)
 
@@ -128,14 +121,14 @@ def _rule_policy(obs, history):
     return "reply"
 
 
-async def main():
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
-
+def run_episode(client, task_type):
     rewards = []
     history = []
     steps_taken = 0
     score = 0.0
     success = False
+
+    log_start(task_type, "support_env", MODEL_NAME)
 
     try:
         obs = {}
@@ -145,18 +138,16 @@ async def main():
             try:
                 res = requests.post(
                     f"{BASE_URL}/reset",
-                    json={"task_type": TASK_TYPE},
-                    timeout=5
+                    json={"task_type": task_type},
+                    timeout=10
                 )
             except Exception:
-                log_start(TASK_TYPE or "support", "support_env", MODEL_NAME)
                 log_end(False, 0, 0.0, [])
-                return
+                return 0.0
 
             if res.status_code != 200:
-                log_start(TASK_TYPE or "support", "support_env", MODEL_NAME)
                 log_end(False, 0, 0.0, [])
-                return
+                return 0.0
 
             reset_result = res.json()
 
@@ -169,12 +160,9 @@ async def main():
             if not done:
                 break
 
-        actual_task = obs.get("difficulty", TASK_TYPE or "support")
-        log_start(actual_task, "support_env", MODEL_NAME)
-
         if done:
             log_end(False, 0, 0.0, [])
-            return
+            return 0.0
 
         for step in range(1, MAX_STEPS + 1):
 
@@ -187,7 +175,7 @@ async def main():
                 res = requests.post(
                     f"{BASE_URL}/step_logged",
                     json={"action": {"action_type": action}},
-                    timeout=5
+                    timeout=10
                 )
 
                 if res.status_code != 200:
@@ -220,7 +208,7 @@ async def main():
             obs = result.get("observation", {})
 
         try:
-            res = requests.get(f"{BASE_URL}/score", timeout=5)
+            res = requests.get(f"{BASE_URL}/score", timeout=10)
             if res.status_code == 200:
                 score = res.json().get("score", 0.0)
         except Exception:
@@ -231,6 +219,15 @@ async def main():
     finally:
         log_end(success, steps_taken, score, rewards)
 
+    return score
+
+
+def main():
+    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+
+    for task_type in TASK_TYPES:
+        run_episode(client, task_type)
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
