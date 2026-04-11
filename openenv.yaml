@@ -1,7 +1,83 @@
-spec_version: 1
-name: support_env
-type: space
-runtime: fastapi
-app: server.app:app
-port: 8000
+name: Support AI RL Environment
+description: >
+  An OpenEnv-compliant environment for evaluating customer support
+  decision-making agents. An LLM agent receives real-world support
+  tickets and must choose the correct triage action: reply directly,
+  request more information, or escalate to a human agent.
+  Includes easy (FAQ), medium (2-step investigation), and hard
+  (high-urgency + ambiguous) task tiers across 57 tickets in 10 categories.
 
+version: "1.0.0"
+author: Dhruvann
+
+observation_space:
+  type: text
+  description: >
+    Structured support ticket observation containing: customer message,
+    urgency level (low/medium/high), sentiment score (-1.0 to +1.0),
+    ticket category (billing/delivery/complaint/technical/etc.),
+    context flags (fraud, vip_user, system_issue), action history,
+    difficulty tier, and episode status.
+
+action_space:
+  type: discrete
+  actions:
+    - reply
+    - request_info
+    - escalate
+  description: >
+    Triage decision for the support ticket.
+    reply: respond directly (simple informational queries).
+    request_info: gather more details before acting (investigation needed).
+    escalate: hand off to a human agent immediately (high urgency or fraud).
+
+endpoints:
+  health: /health
+  reset: /reset
+  step: /step_logged
+  state: /state
+  score: /score
+  tasks: /tasks
+
+tasks:
+  - id: easy
+    description: >
+      Simple informational queries requiring a direct reply.
+      Covers FAQs on payments, shipping, account management, and policies.
+      Agent must reply without requesting additional information.
+    steps: 1
+    ideal_action: reply
+    urgency: low
+    score_range: [0.10, 0.95]
+
+  - id: medium
+    description: >
+      Issues requiring investigation before the agent can respond.
+      Covers billing discrepancies, missing deliveries, and account problems.
+      Agent must follow a 2-step flow: first request_info, then reply.
+      Skipping the investigation step is penalised.
+    steps: 2
+    ideal_action: request_info
+    urgency: medium
+    score_range: [0.10, 0.95]
+
+  - id: hard
+    description: >
+      High-urgency tickets requiring immediate escalation.
+      Includes both clearly distressed customers and ambiguous tickets
+      where tone is calm but urgency is high (fraud, system failures).
+      Agent must escalate based on urgency and context, not just tone.
+    steps: 1
+    ideal_action: escalate
+    urgency: high
+    score_range: [0.30, 0.90]
+
+scoring:
+  reward_range: [0.0, 1.0]
+  success_threshold: 0.7
+  score_formula: grader(trajectory)
+
+constraints:
+  max_runtime_seconds: 1200
+  max_memory_gb: 8
+  max_vcpu: 2
