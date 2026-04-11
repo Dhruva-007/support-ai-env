@@ -1,49 +1,56 @@
-def _clamp(score: float) -> float:
-    # STRICT: ensure score is always between (0,1)
+def _safe(score: float) -> float:
     return max(0.01, min(score, 0.99))
 
 
 def grade_easy(history, expected):
     if not history:
-        return 0.05
+        return 0.1
 
     if history[0] == expected:
         return 0.95
 
-    for i, action in enumerate(history[:3]):
-        if action == expected:
-            return _clamp(0.7 - i * 0.2)
-
-    return 0.05
+    return 0.1
 
 
 def grade_medium(history, expected):
-    for i, action in enumerate(history):
-        if action == expected:
-            score = 0.9 - (i * 0.25)
-            return _clamp(score)
+    """
+    Medium tasks require a 2-step flow: request_info → reply
+    Grading reflects the full trajectory quality:
 
-    return 0.05
-
-
-def grade_hard(history, expected, sentiment, urgency):
+    - Full correct path (request_info → reply):  0.95  ← best
+    - Skipped to reply directly (wrong RL flow):  0.40  ← penalised: skipped required step
+    - Wrong first action, then correct reply:     0.30  ← partial
+    - Anything else:                              0.10  ← wrong
+    """
     if not history:
-        return 0.05
+        return 0.1
 
-    score = 0.05  # base score (never 0)
+    if len(history) >= 2 and history[0] == "request_info" and history[1] == expected:
+        return 0.95
 
-    # correctness
-    if expected in history:
+    if len(history) >= 2 and history[0] == "request_info" and history[1] != expected:
+        return 0.30
+
+    if history[0] == expected:
+        return 0.40
+
+    return 0.10
+
+
+def grade_hard(history, expected, sentiment):
+    """
+    Hard tasks require immediate escalation.
+    Sentiment bonus rewards recognising highly distressed customers.
+    """
+    if not history:
+        return 0.1
+
+    score = 0.3
+
+    if history[0] == expected:
         score += 0.5
 
-    # speed
-    if history[0] == expected:
-        score += 0.3
-    elif len(history) <= 2:
-        score += 0.2
-
-    # context awareness
-    if sentiment < -0.5 and "escalate" in history:
+    if sentiment < -0.5 and history[0] == "escalate":
         score += 0.1
 
-    return _clamp(score)
+    return _safe(score)

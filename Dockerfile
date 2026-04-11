@@ -25,7 +25,7 @@ ENV PYTHONPATH=/app
 EXPOSE 8000
 
 # Health check
-HEALTHCHECK CMD curl -f http://localhost:8000/reset || exit 1
+HEALTHCHECK CMD curl -f http://localhost:8000/health || exit 1
 
 # Start server
 CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8000"]

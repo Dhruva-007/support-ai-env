@@ -41,7 +41,7 @@
         }
 
         pre {
-            max-height: 350px;
+            max-height: 300px;
             overflow-y: auto;
         }
 
@@ -49,6 +49,12 @@
             background: white;
             border-radius: 10px;
             padding: 10px;
+        }
+
+        .score-box {
+            margin-top: 15px;
+            font-size: 16px;
+            color: white;
         }
     </style>
 </head>
@@ -59,6 +65,7 @@
 <div class="controls">
     <button onclick="resetEnv()">Reset</button>
     <button onclick="getState()">Get State</button>
+    <button onclick="getScore()">Get Score</button>
 
     <button onclick="stepEnv('reply')">Reply</button>
     <button onclick="stepEnv('request_info')">Request Info</button>
@@ -70,6 +77,10 @@
     <div class="panel">
         <h3>Response Output</h3>
         <pre id="output">Start by clicking Reset</pre>
+
+        <div class="score-box" id="scoreBox">
+            Score: ---
+        </div>
     </div>
 
     <div class="panel">
@@ -108,8 +119,17 @@
             JSON.stringify(data, null, 2);
     }
 
+    function updateScore(score) {
+        document.getElementById("scoreBox").innerText =
+            "Score: " + score;
+    }
+
     async function resetEnv() {
-        const res = await fetch("/reset");
+        const res = await fetch("/reset", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({})
+        });
         const data = await res.json();
 
         rewards = [];
@@ -118,12 +138,20 @@
         chart.data.datasets[0].data = [];
         chart.update();
 
+        updateScore("-");
         display(data);
     }
 
     async function getState() {
         const res = await fetch("/state");
         const data = await res.json();
+        display(data);
+    }
+
+    async function getScore() {
+        const res = await fetch("/score");
+        const data = await res.json();
+        updateScore(data.score);
         display(data);
     }
 
@@ -145,6 +173,7 @@
         }
 
         display(data);
+        getScore();
     }
 </script>
 

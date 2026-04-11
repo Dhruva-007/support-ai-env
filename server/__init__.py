@@ -6,6 +6,6 @@
 
 """Support Env environment server components."""
 
-from .support_env_environment import SupportEnvironment
+from support_env.environment import SupportEnvironment
 
 __all__ = ["SupportEnvironment"]

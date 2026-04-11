@@ -1,19 +1,36 @@
 import json
 import os
-from support_env.graders import grade_easy, grade_medium, grade_hard
 
 DATA_PATH = os.path.join(os.path.dirname(__file__), "data", "tickets.json")
 
 
-def normalize_task(item):
-    text = item["ticket"].lower()
+REQUIRED_FIELDS = ["ticket", "sentiment", "urgency", "expected_action"]
 
-    if "where is my order" in text or "not received" in text:
-        item["expected_action"] = "request_info"
 
-    if item["sentiment"] < -0.7 or item["urgency"] == "high":
-        item["expected_action"] = "escalate"
+def validate_task(item, idx):
+    for field in REQUIRED_FIELDS:
+        if field not in item:
+            raise ValueError(f"Task {idx} missing required field: {field}")
 
+    item["urgency"] = item["urgency"].lower().strip()
+    item["expected_action"] = item["expected_action"].lower().strip()
+
+    if item["urgency"] not in ["low", "medium", "high"]:
+        raise ValueError(f"Invalid urgency in task {idx}")
+
+    if item["expected_action"] not in ["reply", "request_info", "escalate"]:
+        raise ValueError(f"Invalid expected_action in task {idx}")
+
+    return item
+
+
+def assign_task_type(item):
+    if item["urgency"] == "low":
+        item["type"] = "easy"
+    elif item["urgency"] == "medium":
+        item["type"] = "medium"
+    else:
+        item["type"] = "hard"
     return item
 
 
@@ -24,19 +41,13 @@ def load_tasks():
     tasks = {}
 
     for i, item in enumerate(data):
-        item = normalize_task(item)
-
-        # attach grader (IMPORTANT FIX)
-        if item["urgency"] == "low":
-            item["grader"] = lambda history, expected=item["expected_action"]: grade_easy(history, expected)
-
-        elif item["urgency"] == "medium":
-            item["grader"] = lambda history, expected=item["expected_action"]: grade_medium(history, expected)
-
-        else:
-            item["grader"] = lambda history, expected=item["expected_action"], s=item["sentiment"], u=item["urgency"]: grade_hard(history, expected, s, u)
+        item = validate_task(item, i)
+        item = assign_task_type(item)
 
         tasks[f"task_{i}"] = item
+
+    if len(tasks) < 3:
+        raise ValueError("At least 3 tasks required for validation")
 
     return tasks
 

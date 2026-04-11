@@ -1,7 +1,7 @@
 import asyncio
 import os
+import sys
 import requests
-from typing import List
 from openai import OpenAI
 
 
@@ -13,7 +13,10 @@ if API_KEY is None:
     raise ValueError("HF_TOKEN environment variable is required")
 
 BASE_URL = "http://localhost:8000"
-MAX_STEPS = 8
+MAX_STEPS = 6
+SUCCESS_THRESHOLD = 0.7
+
+TASK_TYPE = os.getenv("TASK_TYPE", None)
 
 
 def log_start(task, env, model):
@@ -29,102 +32,204 @@ def log_step(step, action, reward, done, error):
     )
 
 
-def log_end(success, steps, rewards):
+def log_end(success, steps, score, rewards):
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(f"[END] success={str(success).lower()} steps={steps} rewards={rewards_str}", flush=True)
+    print(
+        f"[END] success={str(success).lower()} steps={steps} "
+        f"score={score:.3f} rewards={rewards_str}",
+        flush=True
+    )
 
 
-def parse_action(text):
-    text = text.lower().strip()
+def llm_policy(client, obs, history):
+    """
+    Use the LLM to select the best action given the current observation.
+    Falls back to the rule-based policy if the LLM call fails or returns
+    an unrecognised response.
+    """
+    urgency = obs.get("urgency", "low")
+    sentiment = obs.get("sentiment", 0.0)
+    message = obs.get("customer_message", "")
+    difficulty = obs.get("difficulty", "easy")
+    category = obs.get("category", "general")
+    step_history = obs.get("history", history)
 
-    if "escalate" in text:
+    system_prompt = (
+        "You are a customer support AI agent. Your job is to choose the single "
+        "best action for a given support ticket.\n\n"
+        "Available actions:\n"
+        "  reply         — Send a direct response. Use for simple, informational questions.\n"
+        "  request_info  — Ask the customer for more details before acting. Use when the "
+        "issue needs investigation (billing errors, missing orders, damaged items, etc.).\n"
+        "  escalate      — Hand off to a human agent immediately. Use for high urgency, "
+        "very negative sentiment, complaints, fraud, or technical system failures.\n\n"
+        "Decision rules (apply in order):\n"
+        "  1. If urgency is HIGH → escalate\n"
+        "  2. If sentiment is very negative (below -0.5) → escalate\n"
+        "  3. If urgency is MEDIUM and you have NOT yet collected info → request_info\n"
+        "  4. If urgency is MEDIUM and info is already collected → reply\n"
+        "  5. If urgency is LOW → reply\n\n"
+        "Respond with ONLY one word: reply, request_info, or escalate. No other text."
+    )
+
+    info_collected = len(step_history) > 0 and step_history[0] == "request_info"
+
+    user_prompt = (
+        f"Ticket: {message}\n"
+        f"Category: {category}\n"
+        f"Urgency: {urgency}\n"
+        f"Sentiment score: {sentiment:.2f}  "
+        f"({'very negative' if sentiment < -0.5 else 'negative' if sentiment < 0 else 'neutral/positive'})\n"
+        f"Difficulty: {difficulty}\n"
+        f"Steps taken so far: {step_history}\n"
+        f"Info already collected: {'yes' if info_collected else 'no'}\n\n"
+        "What is your action?"
+    )
+
+    try:
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=10,
+            temperature=0.7
+        )
+        raw = response.choices[0].message.content.strip().lower()
+
+        for action in ["request_info", "escalate", "reply"]:
+            if action in raw:
+                return action
+
+    except Exception as e:
+        print(f"[DEBUG] LLM call failed: {e}", file=sys.stderr, flush=True)
+
+    return _rule_policy(obs, history)
+
+
+def _rule_policy(obs, history):
+    """Deterministic fallback — mirrors the decision rules in the LLM prompt."""
+    urgency = obs.get("urgency", "low")
+    sentiment = obs.get("sentiment", 0.0)
+
+    if urgency == "high":
         return "escalate"
-    if "request_info" in text or "request" in text:
-        return "request_info"
-    if "reply" in text:
+
+    if sentiment < -0.5:
+        return "escalate"
+
+    if urgency == "medium":
+        obs_history = obs.get("history", history)
+        if len(obs_history) == 0 or obs_history[0] != "request_info":
+            return "request_info"
         return "reply"
 
     return "reply"
-
-
-def build_prompt(obs):
-    return f"""
-You are a precise customer support decision agent.
-
-INPUT:
-Customer message: {obs['customer_message']}
-Sentiment: {obs['sentiment']}
-Urgency: {obs['urgency']}
-
-DECISION RULES (STRICT):
-1. If urgency = high OR sentiment < -0.5 → escalate
-2. If urgency = medium → request_info
-3. If urgency = low AND sentiment >= 0 → reply
-
-IMPORTANT:
-- Output ONLY ONE WORD
-- Do NOT explain
-- Do NOT add extra text
-
-Allowed outputs:
-reply
-request_info
-escalate
-"""
 
 
 async def main():
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
     rewards = []
+    history = []
     steps_taken = 0
+    score = 0.0
+    success = False
 
-    log_start("support", "support_env", MODEL_NAME)
+    try:
+        obs = {}
+        done = True
 
-    res = requests.post(f"{BASE_URL}/reset", json={})
-    result = res.json()
+        for attempt in range(5):
+            try:
+                res = requests.post(
+                    f"{BASE_URL}/reset",
+                    json={"task_type": TASK_TYPE},
+                    timeout=5
+                )
+            except Exception:
+                log_start(TASK_TYPE or "support", "support_env", MODEL_NAME)
+                log_end(False, 0, 0.0, [])
+                return
 
-    obs = result["observation"]
-    done = result["done"]
+            if res.status_code != 200:
+                log_start(TASK_TYPE or "support", "support_env", MODEL_NAME)
+                log_end(False, 0, 0.0, [])
+                return
 
-    for step in range(1, MAX_STEPS + 1):
+            reset_result = res.json()
+
+            if reset_result.get("error"):
+                continue
+
+            obs = reset_result.get("observation", {})
+            done = reset_result.get("done", False)
+
+            if not done:
+                break
+
+        actual_task = obs.get("difficulty", TASK_TYPE or "support")
+        log_start(actual_task, "support_env", MODEL_NAME)
+
         if done:
-            break
+            log_end(False, 0, 0.0, [])
+            return
 
-        prompt = build_prompt(obs)
+        for step in range(1, MAX_STEPS + 1):
+
+            if done:
+                break
+
+            action = llm_policy(client, obs, history)
+
+            try:
+                res = requests.post(
+                    f"{BASE_URL}/step_logged",
+                    json={"action": {"action_type": action}},
+                    timeout=5
+                )
+
+                if res.status_code != 200:
+                    log_step(step, action, 0.0, True, "api_error")
+                    break
+
+                result = res.json()
+
+            except Exception:
+                log_step(step, action, 0.0, True, "request_failed")
+                break
+
+            if result.get("error"):
+                log_step(step, action, 0.0, True, result.get("error"))
+                break
+
+            if "observation" not in result:
+                log_step(step, action, 0.0, True, "api_error")
+                break
+
+            reward = result.get("reward", 0.0)
+            done = result.get("done", False)
+
+            history.append(action)
+            rewards.append(reward)
+            steps_taken = step
+
+            log_step(step, action, reward, done, None)
+
+            obs = result.get("observation", {})
 
         try:
-            completion = client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=10,
-                temperature=0.0, 
-            )
-            text = completion.choices[0].message.content.strip()
-        except:
-            text = "reply"
+            res = requests.get(f"{BASE_URL}/score", timeout=5)
+            if res.status_code == 200:
+                score = res.json().get("score", 0.0)
+        except Exception:
+            score = 0.0
 
-        action = parse_action(text)
+        success = (len(rewards) > 0 and rewards[-1] > 0) or score >= SUCCESS_THRESHOLD
 
-        res = requests.post(
-            f"{BASE_URL}/step",
-            json={"action": {"action_type": action}},
-        )
-
-        result = res.json()
-
-        reward = result.get("reward", 0.0)
-        done = result.get("done", False)
-
-        rewards.append(reward)
-        steps_taken = step
-
-        log_step(step, action, reward, done, None)
-
-        obs = result["observation"]
-
-    success = sum(rewards) > 0.5
-    log_end(success, steps_taken, rewards)
+    finally:
+        log_end(success, steps_taken, score, rewards)
 
 
 if __name__ == "__main__":

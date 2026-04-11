@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 
 class SupportObservation(BaseModel):
@@ -16,8 +16,11 @@ class SupportObservation(BaseModel):
     done: bool = False
 
     reason: Optional[str] = None
-
     difficulty: Optional[str] = None
+
+    category: Optional[str] = None
+
+    context: Optional[Dict[str, Any]] = None
 
 
 class SupportAction(BaseModel):
