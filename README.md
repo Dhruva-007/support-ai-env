@@ -70,45 +70,10 @@ support-ai-env/
 
 | Component | Description |
 |----------|------------|
-| State | Ticket + sentiment + urgency + category + context |
+| State | Ticket + sentiment + urgency |
 | Action | reply / request_info / escalate |
-| Reward | Deterministic scoring with SLA time bonus |
+| Reward | Deterministic scoring |
 | Goal | Maximize cumulative reward |
-
----
-
-## 📋 Observation Space
-
-Each observation returned by `reset()` and `step()` contains:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `ticket_id` | string | Episode identifier |
-| `customer_message` | string | The support ticket text |
-| `sentiment` | float | Sentiment score of the ticket (−1.0 to +1.0) |
-| `urgency` | string | `low` / `medium` / `high` |
-| `difficulty` | string | `easy` / `medium` / `hard` (derived from urgency) |
-| `category` | string | Ticket category: billing, delivery, complaint, technical, etc. |
-| `context` | dict | Structured flags: `{"fraud": true}`, `{"vip_user": true}`, `{"system_issue": true}`, etc. |
-| `history` | list | Actions taken so far in this episode |
-| `time_elapsed` | int | Number of steps taken |
-| `status` | string | `open` or `resolved` |
-| `reward` | float | Reward from the last action |
-| `done` | bool | Whether the episode has ended |
-
----
-
-## 🗂️ Dataset
-
-The ticket pool contains **57 real-world support tickets** balanced equally across all three difficulty tiers:
-
-| Tier | Count | Urgency | Categories |
-|------|-------|---------|------------|
-| Easy | 19 | low | account, billing, complaint, delivery, general, order, payment, product, refund, technical |
-| Medium | 19 | medium | account, billing, complaint, delivery, order, payment, product, refund, technical |
-| Hard | 19 | high | billing, complaint, delivery, payment, refund, technical |
-
-Hard tickets include **6 ambiguous cases** where tone is calm but urgency is high (e.g. fraud, system failures phrased politely) — requiring agents to reason beyond surface sentiment.
 
 ---
 
@@ -156,15 +121,12 @@ POST /reset
 ```
 
 ### Response
-```json
+```
 {
   "observation": {
     "customer_message": "Where is my order?",
     "urgency": "medium",
-    "sentiment": -0.2,
-    "category": "delivery",
-    "context": {"order_status": "delayed"},
-    "difficulty": "medium"
+    "sentiment": -0.2
   },
   "done": false
 }
@@ -183,9 +145,9 @@ POST /step_logged
 ```
 
 ### Response
-```json
+```
 {
-  "reward": 0.45,
+  "reward": 0.3,
   "done": false,
   "observation": {...}
 }
@@ -195,38 +157,32 @@ POST /step_logged
 
 ## ⚖️ Good vs Bad Trajectories
 
-### ❌ Bad Policy (medium task — wrong action)
+### ❌ Bad Policy
 ```
-step 1: escalate → -0.30
-END (score: 0.10)
+step 1: reply → -0.30
+END
 ```
 
-### ✅ Optimal Policy (Medium Task — with SLA bonus)
+### ✅ Optimal Policy (Medium Task)
 ```
 step 1: request_info → +0.45
 step 2: reply        → +1.00
-END (Total: +1.45, score: 0.95)
+END (Total: +1.45)
 ```
 
-### ✅ Optimal Policy (High Urgency — with SLA bonus)
+### ✅ Optimal Policy (High Urgency)
 ```
 step 1: escalate → +0.95
-END (score: 0.90)
-```
-
-### ✅ Optimal Policy (Easy Task — with SLA bonus)
-```
-step 1: reply → +1.15
-END (score: 0.95)
+END
 ```
 
 ---
 
 ## ⚙️ Action Space
 
-- `reply` → respond directly to the customer
-- `request_info` → ask the customer for more details before acting
-- `escalate` → hand off to a human agent immediately
+- reply → respond directly
+- request_info → gather details
+- escalate → handover to human
 
 ---
 
@@ -238,6 +194,7 @@ END (score: 0.95)
 | Medium step 1 correct (request_info) | +0.30 | +0.45 |
 | Medium step 2 correct (reply) | +0.90 | +1.00 |
 | Hard correct (escalate) | +0.80 | +0.95 |
+| Hard correct + fraud/vip context | +0.85 | +1.00 |
 | Wrong action | −0.30 | — |
 | Repeated action | −0.10 penalty | — |
 
@@ -245,31 +202,29 @@ END (score: 0.95)
 
 ## 🏅 SLA-Based Reward Shaping
 
-Rewards include a **time bonus** based on step efficiency. Fewer steps to the correct action = higher reward, mirroring real-world SLA expectations.
+Rewards now include a **time bonus** based on step efficiency. Fewer steps to the correct action = higher reward. This introduces continuous signal variation and teaches agents to resolve tickets quickly — mirroring real-world SLA expectations.
 
 ```
 time_bonus = max(0, (4 - step_count) * 0.05)
-reward += time_bonus  # only when reward > 0
+reward += time_bonus
 ```
 
-| Step | Time Bonus |
-|------|-----------|
-| Step 1 correct | +0.15 |
-| Step 2 correct | +0.10 |
-| Step 3 correct | +0.05 |
-| Step 4+ | no bonus |
+- Step 1 correct → +0.15 bonus
+- Step 2 correct → +0.10 bonus
+- Step 3 correct → +0.05 bonus
+- Step 4+ → no bonus
 
 ---
 
 ## 🎯 Ambiguous Hard Tasks
 
-Hard tasks include tickets where **sentiment contradicts urgency** — the agent must reason across all signals (urgency + category + context) rather than relying on emotional tone alone.
+Hard tasks now include tickets where **sentiment contradicts urgency** — the agent must reason across all signals (tone + urgency + category + context flags) to pick the correct action, rather than relying on surface-level text alone.
 
 **Example:**
 ```json
 {
-  "ticket": "No rush, but there seems to be a duplicate transaction on my account.",
-  "sentiment": 0.0,
+  "ticket": "I think there might be a small issue with my last payment.",
+  "sentiment": -0.3,
   "urgency": "high",
   "category": "billing",
   "context": {"fraud": true},
@@ -278,66 +233,55 @@ Hard tasks include tickets where **sentiment contradicts urgency** — the agent
 ```
 Calm tone, but `urgency=high` and `context.fraud=true` → correct action is `escalate`, not `reply`.
 
-These ambiguous tickets score **0.80** (no sentiment bonus) vs **0.90** for clearly distressed tickets, creating genuine score variation within the hard tier.
-
----
-
-## 📊 Grading Criteria
-
-### Easy
-| Trajectory | Score |
-|-----------|-------|
-| `reply` (correct) | 0.95 |
-| Any wrong action | 0.10 |
-
-### Medium
-| Trajectory | Score |
-|-----------|-------|
-| `request_info → reply` (full correct path) | 0.95 |
-| `reply` only (skipped investigation step) | 0.40 |
-| `request_info → wrong` (info gathered, wrong follow-up) | 0.30 |
-| Any other trajectory | 0.10 |
-
-### Hard
-| Trajectory | Score |
-|-----------|-------|
-| `escalate` + sentiment < −0.5 (clearly distressed) | 0.90 |
-| `escalate` + sentiment ≥ −0.5 (ambiguous ticket) | 0.80 |
-| Any wrong action | 0.30 |
-
 ---
 
 ## 🔌 API Endpoints
 
-| Endpoint | Method | Description |
-|--------|--------|------------|
-| `/reset` | POST / GET | Start a new episode (optional `task_type` body param) |
-| `/step_logged` | POST | Take an action |
-| `/state` | GET | View current environment state |
-| `/score` | GET | Get final episode score |
-| `/tasks` | GET | List all task types with live counts, criteria, and sample tickets |
-| `/health` | GET | Health check |
+| Endpoint | Description |
+|--------|------------|
+| POST /reset | Start episode |
+| POST /step_logged | Take action |
+| GET /state | View state |
+| GET /score | Final score |
+| GET /tasks | List all task types with descriptions |
+| GET /health | Health check |
 
 ### GET /tasks Response
-Returns live data from the ticket pool — `sample` is drawn randomly each call:
 ```json
 {
   "tasks": [
-    {
-      "type": "easy",
-      "description": "Simple informational queries...",
-      "ticket_count": 19,
-      "categories": ["account", "billing", "delivery", ...],
-      "scoring_criteria": {"correct (reply at step 1)": 0.95, "wrong action": 0.10},
-      "reward_range": {"correct_step_1": 1.15, "wrong": -0.3},
-      "sample": {"ticket": "...", "category": "...", "urgency": "low", ...}
-    }
-  ],
-  "total_ticket_pool": 57,
-  "action_space": ["reply", "request_info", "escalate"],
-  "score_range": [0.01, 0.99]
+    {"type": "easy", "description": "Simple informational queries", "expected_action": "reply"},
+    {"type": "medium", "description": "Issues requiring investigation", "expected_action": "request_info → reply"},
+    {"type": "hard", "description": "High urgency escalations", "expected_action": "escalate"}
+  ]
 }
 ```
+
+---
+
+## 📈 Baseline Performance
+
+Evaluated using `Qwen/Qwen2.5-72B-Instruct` via HuggingFace Inference API.
+Each task type runs one episode with LLM policy + deterministic fallback.
+Scores are grader outputs in `[0.01, 0.99]`.
+
+| Task | Difficulty | Trajectory | Reward | Score | Notes |
+|------|-----------|------------|--------|-------|-------|
+| easy | Easy | `reply` | 1.15 | 0.950 | Correct direct reply; deterministic |
+| medium | Medium | `request_info → reply` | 0.45, 1.00 | 0.950 | Correct 2-step flow; deterministic |
+| hard | Hard | `escalate` | 0.95 | 0.900 | Clearly distressed ticket (sentiment < −0.5) |
+| hard | Hard | `escalate` | 1.00 | 0.900 | Fraud/VIP ticket; context bonus applied |
+| hard | Hard | `escalate` | 0.95 | 0.800 | Ambiguous ticket (calm tone, high urgency) |
+
+**Score distribution across all 57 tickets (correct agent):**
+
+| Tier | Min Score | Max Score | Mean Score | Ticket Count |
+|------|-----------|-----------|------------|--------------|
+| Easy | 0.950 | 0.950 | 0.950 | 19 |
+| Medium | 0.950 | 0.950 | 0.950 | 19 |
+| Hard | 0.800 | 0.900 | 0.868 | 19 |
+
+Hard score varies because `grade_hard` awards a sentiment bonus (`+0.1`) only when `sentiment < −0.5`. 13 of 19 hard tickets are clearly distressed (score 0.90); 6 are ambiguous/calm-tone tickets (score 0.80), specifically designed to test context-based reasoning.
 
 ---
 
@@ -358,6 +302,11 @@ docker run -p 8000:8000 support_env
 python inference.py
 ```
 
+### Reproducible Benchmark Run
+```
+RANDOM_SEED=42 python inference.py
+```
+
 ---
 
 ## 🔐 Environment Variables
@@ -367,6 +316,7 @@ python inference.py
 | `HF_TOKEN` | ✅ Yes | — | Hugging Face API token |
 | `API_BASE_URL` | No | `https://router.huggingface.co/v1` | LLM API endpoint |
 | `MODEL_NAME` | No | `Qwen/Qwen2.5-72B-Instruct` | Model identifier |
+| `RANDOM_SEED` | No | — | Integer seed for reproducible ticket sampling |
 
 ---
 
@@ -391,16 +341,18 @@ python inference.py
 
 ## 🏆 Features
 
-- Real-world customer support scenarios (57 tickets, 10 categories)
+- Real-world support scenarios (57 tickets, 10 categories)
 - Balanced difficulty tiers: 19 easy / 19 medium / 19 hard
 - Multi-step RL environment with 2-step medium task flow
 - Deterministic grading with clear, reproducible criteria
 - SLA-based reward shaping (time bonus for faster resolution)
+- Context-aware reward bonus for fraud and VIP tickets
 - Ambiguous hard tasks requiring multi-signal reasoning
-- Rich observation space: sentiment, urgency, category, context flags
-- Self-documenting `/tasks` endpoint with live ticket counts and sample
+- Context flags in observation (`fraud`, `vip_user`, `system_issue`)
+- Optional deterministic seed for reproducible benchmark runs
+- Self-documenting `/tasks` endpoint
 - OpenEnv compliant
-- FastAPI backend with route conflict resolution
+- FastAPI backend
 - Docker ready
 
 ---
