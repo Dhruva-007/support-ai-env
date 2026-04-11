@@ -15,7 +15,6 @@ BASE_URL = "http://localhost:8000"
 MAX_STEPS = 6
 SUCCESS_THRESHOLD = 0.7
 
-# Run all three task types so the validator sees 3 graded tasks in one execution
 TASK_TYPES = ["easy", "medium", "hard"]
 
 
@@ -42,11 +41,6 @@ def log_end(success, steps, score, rewards):
 
 
 def llm_policy(client, obs, history):
-    """
-    Use the LLM to select the best action given the current observation.
-    Falls back to the rule-based policy if the LLM call fails or returns
-    an unrecognised response.
-    """
     urgency = obs.get("urgency", "low")
     sentiment = obs.get("sentiment", 0.0)
     message = obs.get("customer_message", "")
@@ -54,9 +48,6 @@ def llm_policy(client, obs, history):
     category = obs.get("category", "general")
     step_history = obs.get("history", history)
 
-    # IDEA 2: Read context flags from observation and include in LLM prompt.
-    # This gives the model the strongest available signal for hard/ambiguous tasks.
-    # context looks like: {"fraud": true} or {"vip_user": true} or {}
     context = obs.get("context") or {}
     active_flags = [k for k, v in context.items() if v]
     context_line = f"Context flags: {', '.join(active_flags)}" if active_flags else "Context flags: none"
@@ -112,22 +103,18 @@ def llm_policy(client, obs, history):
                 return action
 
     except Exception as e:
-        # Log to stderr so stdout [STEP]/[END] format is never polluted
         print(f"[DEBUG] LLM call failed: {e}", file=sys.stderr, flush=True)
 
-    # Fallback to deterministic rule-based policy
     return _rule_policy(obs, history)
 
 
 def _rule_policy(obs, history):
-    """Deterministic fallback — mirrors the decision rules in the LLM prompt."""
     urgency = obs.get("urgency", "low")
     sentiment = obs.get("sentiment", 0.0)
 
     if urgency == "high":
         return "escalate"
 
-    # IDEA 2: fallback also checks context flags, consistent with LLM prompt rule 2
     context = obs.get("context") or {}
     if context.get("fraud") or context.get("vip_user"):
         return "escalate"
@@ -145,11 +132,6 @@ def _rule_policy(obs, history):
 
 
 def run_episode(client, task_type):
-    """
-    Run a single complete episode for the given task_type.
-    Emits [START], one or more [STEP], and [END] lines to stdout.
-    Returns the final score.
-    """
     rewards = []
     history = []
     steps_taken = 0
@@ -159,7 +141,6 @@ def run_episode(client, task_type):
     log_start(task_type, "support_env", MODEL_NAME)
 
     try:
-        # Reset the environment to the requested task type
         obs = {}
         done = True
 
@@ -236,7 +217,6 @@ def run_episode(client, task_type):
 
             obs = result.get("observation", {})
 
-        # Fetch final score from /score endpoint
         try:
             res = requests.get(f"{BASE_URL}/score", timeout=10)
             if res.status_code == 200:
@@ -247,7 +227,6 @@ def run_episode(client, task_type):
         success = (len(rewards) > 0 and rewards[-1] > 0) or score >= SUCCESS_THRESHOLD
 
     finally:
-        # Always emit [END] even on exception, per spec
         log_end(success, steps_taken, score, rewards)
 
     return score
@@ -256,9 +235,6 @@ def run_episode(client, task_type):
 def main():
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
-    # Run one complete episode for each task type.
-    # This ensures the validator sees 3 distinct [START]...[END] blocks,
-    # each with a graded score, satisfying the "3 tasks with graders" requirement.
     for task_type in TASK_TYPES:
         run_episode(client, task_type)
 
