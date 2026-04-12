@@ -14,10 +14,13 @@ observation_space:
   type: text
   description: >
     Structured support ticket observation containing: customer message,
-    urgency level (low/medium/high), sentiment score (-1.0 to +1.0),
-    ticket category (billing/delivery/complaint/technical/etc.),
-    context flags (fraud, vip_user, system_issue), action history,
-    difficulty tier, and episode status.
+    urgency level (low/medium/high; shown as "unknown" on hard tasks so the
+    agent must infer severity from ticket text, sentiment, category and context
+    flags), sentiment score (-1.0 to +1.0), ticket category
+    (billing/delivery/complaint/technical/etc.), context flags (fraud,
+    vip_user, system_issue), action history, difficulty tier, episode status,
+    and assigned_team (set to "human_agent" when a hard-task escalation
+    completes, reflecting the real routing outcome).
 
 action_space:
   type: discrete
@@ -66,11 +69,14 @@ tasks:
       High-urgency tickets requiring immediate escalation.
       Includes both clearly distressed customers and ambiguous tickets
       where tone is calm but urgency is high (fraud, system failures).
-      Agent must escalate based on urgency and context, not just tone.
-    steps: 1
+      Urgency is hidden (shown as "unknown") — agent must escalate based on
+      ticket text, sentiment, category and context flags, not just tone.
+      Supports a 1–2 step flow: immediate escalate (optimal) or
+      request_info → escalate (partial credit).
+    steps: 2        
     ideal_action: escalate
-    urgency: high
-    score_range: [0.30, 0.90]
+    urgency: unknown
+    score_range: [0.10, 0.90]
 
 scoring:
   reward_range: [0.0, 1.0]

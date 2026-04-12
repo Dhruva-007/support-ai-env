@@ -9,6 +9,8 @@ _RANDOM_SEED = os.getenv("RANDOM_SEED")
 if _RANDOM_SEED is not None:
     random.seed(int(_RANDOM_SEED))
 
+_episode_counter = 0
+
 
 class SupportEnvironment:
     def __init__(self):
@@ -29,6 +31,9 @@ class SupportEnvironment:
         self.task = random.choice(list(TASKS.values()))
 
     def reset(self, *args, **kwargs):
+        global _episode_counter
+        _episode_counter += 1
+
         self.episode_id = kwargs.get("episode_id", "default-episode")
         task_type = kwargs.get("task_type", None)
         self._init_task(task_type=task_type)
@@ -45,7 +50,7 @@ class SupportEnvironment:
         )
 
         return SupportObservation(
-            ticket_id="1",
+            ticket_id=str(_episode_counter),
             customer_message=self.task["ticket"],
             history=[],
             sentiment=self.task["sentiment"],
@@ -72,32 +77,40 @@ class SupportEnvironment:
             else self.task["urgency"]
         )
 
+        assigned_team = None
+
         if task_type == "easy":
             if action.action_type == expected:
                 reward = 1.0
             else:
                 reward = -0.3
             self.done = True
+            self.stage = 3
 
         elif task_type == "hard":
             if not self.collected_info:
-                # Step 1
                 if action.action_type == "escalate":
                     reward = 0.7
                     self.done = True
+                    assigned_team = "human_agent"
+                    self.stage = 3
                 elif action.action_type == "request_info":
                     reward = 0.2
                     self.collected_info = True
                     self.done = False
+                    self.stage = 2
                 else:
                     reward = -0.3
                     self.done = True
+                    self.stage = 3
             else:
                 if action.action_type == "escalate":
                     reward = 0.6
+                    assigned_team = "human_agent"
                 else:
                     reward = -0.3
                 self.done = True
+                self.stage = 3
 
         else:
             if not self.collected_info:
@@ -105,9 +118,11 @@ class SupportEnvironment:
                     reward = 0.3
                     self.collected_info = True
                     self.done = False
+                    self.stage = 2
                 else:
                     reward = -0.2 if action.action_type == "reply" else -0.3
                     self.done = True
+                    self.stage = 3
             else:
                 if action.action_type == "reply":
                     reward = 0.9
@@ -117,6 +132,7 @@ class SupportEnvironment:
                 else:
                     reward = -0.3
                 self.done = True
+                self.stage = 3
 
         if (
             len(self.history) >= 2
@@ -130,15 +146,16 @@ class SupportEnvironment:
 
         if self.step_count >= 4:
             self.done = True
+            self.stage = 3
 
         return SupportObservation(
-            ticket_id="1",
+            ticket_id=str(_episode_counter),
             customer_message=self.task["ticket"],
             history=self.history,
             sentiment=self.task["sentiment"],
             urgency=observed_urgency,
             time_elapsed=self.step_count,
-            assigned_team=None,
+            assigned_team=assigned_team,
             status="resolved" if self.done else "open",
             reward=round(reward, 2),
             done=self.done,
@@ -177,7 +194,7 @@ class SupportEnvironment:
             "task": self.task,
             "history": self.history,
             "expected_action": self.task["expected_action"],
-            "stage": self.stage,
+            "stage": self.stage, 
             "collected_info": self.collected_info
         }
 

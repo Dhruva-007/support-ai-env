@@ -124,9 +124,14 @@ def get_tasks():
                     "Includes both clearly distressed customers (very negative sentiment) and "
                     "ambiguous tickets where tone is calm but urgency is high — e.g. fraud, "
                     "system failures, or critical account issues phrased politely. "
-                    "Agent must escalate based on urgency and context, not just emotional tone."
+                    "Urgency is hidden (shown as 'unknown') — agent must escalate based on "
+                    "ticket text, sentiment, category and context flags, not just tone. "
+                    "Supports a 1–2 step flow: immediate escalate (optimal) or "
+                    "request_info → escalate (partial credit). "
+                    "When escalation completes, assigned_team is set to 'human_agent'."
                 ),
-                "urgency": "high",
+                "urgency": "unknown",      
+                "steps": 2,              
                 "expected_action": "escalate",
                 "difficulty": "hard",
                 "ticket_count": len(by_type["hard"]),
@@ -136,10 +141,7 @@ def get_tasks():
                     "correct (escalate) + sentiment >= -0.5": 0.80,
                     "wrong action": 0.30
                 },
-                "reward_range": {
-                    "correct_step_1": 0.95,
-                    "wrong": -0.3
-                },
+                "reward_range": [0.0, 1.00],   
                 "grader": "grade_hard",
                 "sample": pick_example(by_type["hard"])
             }
