@@ -39,12 +39,17 @@ class SupportEnvironment:
         self.stage = 1
         self.collected_info = False
 
+        observed_urgency = (
+            "unknown" if self.task["type"] == "hard"
+            else self.task["urgency"]
+        )
+
         return SupportObservation(
             ticket_id="1",
             customer_message=self.task["ticket"],
             history=[],
             sentiment=self.task["sentiment"],
-            urgency=self.task["urgency"],
+            urgency=observed_urgency,
             time_elapsed=0,
             assigned_team=None,
             status="open",
@@ -62,6 +67,11 @@ class SupportEnvironment:
         expected = self.task["expected_action"]
         task_type = self.task["type"]
 
+        observed_urgency = (
+            "unknown" if task_type == "hard"
+            else self.task["urgency"]
+        )
+
         if task_type == "easy":
             if action.action_type == expected:
                 reward = 1.0
@@ -70,15 +80,24 @@ class SupportEnvironment:
             self.done = True
 
         elif task_type == "hard":
-            if action.action_type == expected:
-                reward = 0.8
-
-                ctx = self.task.get("context", {})
-                if ctx.get("fraud") or ctx.get("vip_user"):
-                    reward += 0.05
+            if not self.collected_info:
+                # Step 1
+                if action.action_type == "escalate":
+                    reward = 0.7
+                    self.done = True
+                elif action.action_type == "request_info":
+                    reward = 0.2
+                    self.collected_info = True
+                    self.done = False
+                else:
+                    reward = -0.3
+                    self.done = True
             else:
-                reward = -0.3
-            self.done = True
+                if action.action_type == "escalate":
+                    reward = 0.6
+                else:
+                    reward = -0.3
+                self.done = True
 
         else:
             if not self.collected_info:
@@ -89,7 +108,6 @@ class SupportEnvironment:
                 else:
                     reward = -0.2 if action.action_type == "reply" else -0.3
                     self.done = True
-
             else:
                 if action.action_type == "reply":
                     reward = 0.9
@@ -118,7 +136,7 @@ class SupportEnvironment:
             customer_message=self.task["ticket"],
             history=self.history,
             sentiment=self.task["sentiment"],
-            urgency=self.task["urgency"],
+            urgency=observed_urgency,
             time_elapsed=self.step_count,
             assigned_team=None,
             status="resolved" if self.done else "open",

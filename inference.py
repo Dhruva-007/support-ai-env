@@ -50,7 +50,10 @@ def llm_policy(client, obs, history):
 
     context = obs.get("context") or {}
     active_flags = [k for k, v in context.items() if v]
-    context_line = f"Context flags: {', '.join(active_flags)}" if active_flags else "Context flags: none"
+    context_line = (
+        f"Context flags: {', '.join(active_flags)}"
+        if active_flags else "Context flags: none"
+    )
 
     system_prompt = (
         "You are a customer support AI agent. Your job is to choose the single "
@@ -65,9 +68,15 @@ def llm_policy(client, obs, history):
         "  1. If urgency is HIGH → escalate\n"
         "  2. If context flags include fraud or vip_user → escalate\n"
         "  3. If sentiment is very negative (below -0.5) → escalate\n"
-        "  4. If urgency is MEDIUM and you have NOT yet collected info → request_info\n"
-        "  5. If urgency is MEDIUM and info is already collected → reply\n"
-        "  6. If urgency is LOW → reply\n\n"
+        "  4. If urgency is UNKNOWN — reason carefully from the ticket text, sentiment, "
+        "category and context flags:\n"
+        "       - Signs of financial loss, fraud, account compromise, or system failure → escalate\n"
+        "       - Calm tone but context flags suggest severity → escalate\n"
+        "       - Issue genuinely needs more details → request_info\n"
+        "       - Simple question with no urgency signals → reply\n"
+        "  5. If urgency is MEDIUM and you have NOT yet collected info → request_info\n"
+        "  6. If urgency is MEDIUM and info is already collected → reply\n"
+        "  7. If urgency is LOW → reply\n\n"
         "Respond with ONLY one word: reply, request_info, or escalate. No other text."
     )
 
@@ -111,16 +120,24 @@ def llm_policy(client, obs, history):
 def _rule_policy(obs, history):
     urgency = obs.get("urgency", "low")
     sentiment = obs.get("sentiment", 0.0)
+    context = obs.get("context") or {}
 
     if urgency == "high":
         return "escalate"
 
-    context = obs.get("context") or {}
     if context.get("fraud") or context.get("vip_user"):
         return "escalate"
 
     if sentiment < -0.5:
         return "escalate"
+
+    if urgency == "unknown":
+        obs_history = obs.get("history", history)
+        if len(obs_history) > 0 and obs_history[0] == "request_info":
+            return "escalate"
+        if sentiment < -0.05 or context.get("system_issue"):
+            return "escalate"
+        return "request_info"
 
     if urgency == "medium":
         obs_history = obs.get("history", history)
