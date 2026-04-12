@@ -5,6 +5,7 @@ from support_env.models import SupportObservation, SupportAction
 from support_env.tasks import TASKS
 from support_env.graders import grade_easy, grade_medium, grade_hard
 
+
 _RANDOM_SEED = os.getenv("RANDOM_SEED")
 if _RANDOM_SEED is not None:
     random.seed(int(_RANDOM_SEED))
@@ -21,6 +22,7 @@ class SupportEnvironment:
         self.episode_id = None
         self.stage = 1
         self.collected_info = False
+        self.ticket_id = "0"
 
     def _init_task(self, task_type=None):
         if task_type in ("easy", "medium", "hard"):
@@ -34,15 +36,16 @@ class SupportEnvironment:
         global _episode_counter
         _episode_counter += 1
 
-        self.episode_id = kwargs.get("episode_id", "default-episode")
+        self.episode_id = kwargs.get("episode_id", f"episode-{_episode_counter}")
         task_type = kwargs.get("task_type", None)
         self._init_task(task_type=task_type)
 
         self.step_count = 0
         self.done = False
         self.history = []
-        self.stage = 1
+        self.stage = 1     
         self.collected_info = False
+        self.ticket_id = str(_episode_counter)  
 
         observed_urgency = (
             "unknown" if self.task["type"] == "hard"
@@ -50,7 +53,7 @@ class SupportEnvironment:
         )
 
         return SupportObservation(
-            ticket_id=str(_episode_counter),
+            ticket_id=self.ticket_id,
             customer_message=self.task["ticket"],
             history=[],
             sentiment=self.task["sentiment"],
@@ -62,7 +65,8 @@ class SupportEnvironment:
             done=False,
             reason=None,
             difficulty=self.task["type"],
-            category=self.task.get("category", "general")
+            category=self.task.get("category", "general"),
+            context=self.task.get("context", {})
         )
 
     def step(self, action: SupportAction):
@@ -85,32 +89,33 @@ class SupportEnvironment:
             else:
                 reward = -0.3
             self.done = True
-            self.stage = 3
 
         elif task_type == "hard":
             if not self.collected_info:
+                # Step 1
                 if action.action_type == "escalate":
                     reward = 0.7
                     self.done = True
-                    assigned_team = "human_agent"
-                    self.stage = 3
+                    self.stage = 3         
                 elif action.action_type == "request_info":
                     reward = 0.2
                     self.collected_info = True
                     self.done = False
-                    self.stage = 2
+                    self.stage = 2         
                 else:
                     reward = -0.3
                     self.done = True
-                    self.stage = 3
             else:
                 if action.action_type == "escalate":
                     reward = 0.6
-                    assigned_team = "human_agent"
+                    self.stage = 3 
                 else:
                     reward = -0.3
                 self.done = True
-                self.stage = 3
+
+            if self.done and action.action_type == "escalate":
+                assigned_team = "human_agent"
+
 
         else:
             if not self.collected_info:
@@ -118,21 +123,20 @@ class SupportEnvironment:
                     reward = 0.3
                     self.collected_info = True
                     self.done = False
-                    self.stage = 2
+                    self.stage = 2      
                 else:
                     reward = -0.2 if action.action_type == "reply" else -0.3
                     self.done = True
-                    self.stage = 3
             else:
                 if action.action_type == "reply":
                     reward = 0.9
+                    self.stage = 3   
                 elif action.action_type == "request_info":
                     reward = -0.1
                     self.done = True
                 else:
                     reward = -0.3
                 self.done = True
-                self.stage = 3
 
         if (
             len(self.history) >= 2
@@ -146,22 +150,22 @@ class SupportEnvironment:
 
         if self.step_count >= 4:
             self.done = True
-            self.stage = 3
 
         return SupportObservation(
-            ticket_id=str(_episode_counter),
+            ticket_id=self.ticket_id,
             customer_message=self.task["ticket"],
             history=self.history,
             sentiment=self.task["sentiment"],
             urgency=observed_urgency,
             time_elapsed=self.step_count,
-            assigned_team=assigned_team,
+            assigned_team=assigned_team, 
             status="resolved" if self.done else "open",
             reward=round(reward, 2),
             done=self.done,
             reason=f"Expected {expected}, got {action.action_type}",
             difficulty=self.task["type"],
-            category=self.task.get("category", "general")
+            category=self.task.get("category", "general"),
+            context=self.task.get("context", {})
         )
 
     def compute_score(self):
@@ -194,7 +198,7 @@ class SupportEnvironment:
             "task": self.task,
             "history": self.history,
             "expected_action": self.task["expected_action"],
-            "stage": self.stage, 
+            "stage": self.stage,        
             "collected_info": self.collected_info
         }
 
